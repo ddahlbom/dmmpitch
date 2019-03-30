@@ -132,7 +132,7 @@ y_vals = np.zeros((0,num_pitches))
 x_vals = np.zeros((0,num_channels,frame_size_n), dtype=np.float32)
 block_num = 1
 for k, mf in enumerate(midi_files):
-    print("\n--------------------Starting file {} of {}--------------------".format(k+1,num_files))
+    print("\n-------------------- Starting file {} of {} --------------------".format(k+1,num_files))
 
     # Load the data
     pm = pretty_midi.PrettyMIDI(mf)
@@ -214,23 +214,25 @@ for k, mf in enumerate(midi_files):
         ax.append(fig.add_subplot(2,5,k+1))
         ax[k].imshow(x[k+50], aspect="auto", cmap=cm.binary)
     '''
-    if block_num % 10 == 0:
-        print("Writing block of output...")
+    if (k+1) % 10 == 0:
+        print("\nWriting block {}...".format(block_num))
         f_name = file_name + "_{:04d}".format(block_num) + ".bin"
         with open(f_name, "wb") as f:
             pickle.dump((y_vals, x_vals), f)
         y_vals = np.zeros((0,num_pitches))
         x_vals = np.zeros((0,num_channels,frame_size_n), dtype=np.float32)
+        print("Finished writing.\n")
         block_num += 1
-        print("Finished writing.")
      
 # clean up and write data
-if block_num % 10 != 0:
-    print("Writing block of output...")
+print("label shapes: ", y_vals.shape)
+print("data shapes:  ", x_vals.shape)
+if (k+1) % 10 != 0:
+    print("\nWriting final block ({}) of output ...".format(block_num))
     f_name = file_name + "_{:04d}".format(block_num) + ".bin"
     with open(f_name, "wb") as f:
         pickle.dump((y_vals, x_vals), f)
-    print("Finished writing.")
+    print("Finished writing.\n")
 
 
 
