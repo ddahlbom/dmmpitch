@@ -22,7 +22,9 @@ import glob
 class auditoryDataset(Dataset):
     def __init__(self, file_path, file_prefix, transform=None):
         glob_path = file_path + file_prefix + "*.bin"
+        print("path:", glob_path)
         files = glob.glob(glob_path)
+        print(files)
         x = []  # auditory images 
         y = []  # labels
         for k, f in enumerate(files):
@@ -78,7 +80,7 @@ class Net(nn.Module):
     def calc_dim_output(img_dim, filt_dim, stride, pad_dim):
         return (img_dim - filt_dim + 2*pad_dim)/stride + 1
 
-    def __init__(self, img_size):
+    def __init__(self, img_size, drop_p=0.0):
         super(Net, self).__init__()
 
         # size parameters
@@ -141,69 +143,88 @@ class Net(nn.Module):
 
         # Sigmoid out
         self.sigmoid = nn.Sigmoid()
+        self.dropout = nn.Dropout(drop_p)
 
     def forward(self, x):
         x = self.pool1(F.relu(self.conv1(x)))
         x = self.pool2(F.relu(self.conv2(x)))    # same as (2,2)
         x = x.view(-1, self.lin_dims) 
+        x = self.dropout(x)
         x = F.relu(self.fc1(x))
+        x = self.dropout(x)
         x = F.relu(self.fc2(x))
         x = self.fc3(x)
-        x = self.sigmoid(x)
+        # x = self.sigmoid(x) ` # not needed if using BCEWithLogitsLoss
         return x
-
-
-net = Net([600, 72])
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-print("Using device: ", device, "\n")
-net.to(device)
-
-
-################################################################################
-# Import and transform data
-################################################################################
-file_prefix = "jsb_data"
-file_path   = "/home/dahlbom/research/dmm_pitch/data_gen/"
-batch_size  = 8
-num_workers = 2
-
-bach_dataset = auditoryDataset(file_path,
-                               file_prefix,
-                               transform=transforms.Compose([Renorm(),
-                                                             ToTensor()]))
-trainloader = DataLoader(bach_dataset,
-                         batch_size=batch_size,
-                         shuffle=True,
-                         num_workers=num_workers)
-
-
-################################################################################
-# Loss Function and Optimizer
-################################################################################
-# criterion = nn.CrossEntropyLoss()
-criterion = nn.MSELoss()
-optimizer = optim.SGD(net.parameters(), lr=0.001, momentum=0.9)
 
 
 ################################################################################
 # Training
 ################################################################################
-num_epochs = 2
-for epoch in range(num_epochs):
-    running_loss = 0.0
-    for i, data in enumerate(trainloader, 0):
-        inputs, labels = data['image'], data['notes']
-        inputs, labels = inputs.to(device), labels.to(device)
-        optimizer.zero_grad()
-        outputs = net(inputs)
-        loss = criterion(outputs, labels.float())
-        loss.backward()
-        optimizer.step()
+if __name__=="__main__":
+    ## Run parameters
+    file_prefix = "jsb_data"
+    # file_path   = "/home/dahlbom/research/dmm_pitch/data_gen/"
+    file_path   = "C:/Users/Beranek/Documents/dahlbom/dmm_pitch/cnn_front_end/"
+    batch_size  = 8
+    num_workers = 2
+    num_epochs = 100 
 
-        running_loss += loss.item()
-        if i % 2000 == 1999:
-            print('[%d, %5d] loss: %.3f' %
-                    (epoch + 1, i+1, running_loss/2000))
-            running_loss = 0.0
+    ## Set up network
+    net = Net([600, 72])
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    print("Using device: ", device, "\n")
+    net.to(device)
+    
+    ## Set up loss fucntion and optimizer
+    # criterion = nn.CrossEntropyLoss()
+    # criterion = nn.MSELoss()
+    criterion = nn.BCEWithLogitsLoss()
+    optimizer = optim.SGD(net.parameters(), lr=0.001, momentum=0.9)
 
-print('Finished Training')
+    ## Load data
+    bach_dataset = auditoryDataset(file_path,
+                                   file_prefix,
+                                   transform=transforms.Compose([Renorm(),
+                                                                 ToTensor()]))
+    trainloader = DataLoader(bach_dataset,
+                             batch_size=batch_size,
+                             shuffle=True,
+                             num_workers=num_workers)
+
+    ## Begin training
+    for epoch in range(num_epochs):
+        running_loss = 0.0
+        for i, data in enumerate(trainloader, 0):
+            inputs, labels = data['image'], data['notes']
+            inputs, labels = inputs.to(device), labels.to(device)
+            optimizer.zero_grad()
+            outputs = net(inputs)
+            loss = criterion(outputs, labels.float())
+            loss.backward()
+            optimizer.step()
+
+            running_loss += loss.item()
+            if i % 500 == 499:
+                print('[%d, %5d] loss: %.8f' %
+                        (epoch + 1, i+1, running_loss/2000))
+                running_loss = 0.0
+
+    print('Finished Training')
+
+    # Now see what an output looks like...
+    fig = plt.figure()
+    for k in range(15):
+        rand_idx = np.random.randint(0,len(bach_dataset))
+        target = bach_dataset[rand_idx]['notes']
+        in_image = bach_dataset[rand_idx]['image']
+        output = net(in_image.unsqueeze(0).to('cuda'))
+        sig = nn.Sigmoid()
+        output = sig(output)
+        output = output.to('cpu')
+        ax = fig.add_subplot(3,5,k+1) 
+        ax.plot(output[0].detach().numpy())
+        ax.plot(target.numpy())
+        ax.set_ylim([0,1.1])
+    plt.show()
+    
