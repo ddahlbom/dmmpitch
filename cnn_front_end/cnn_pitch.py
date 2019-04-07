@@ -16,10 +16,8 @@ import glob
 
 
 ################################################################################
-# Import and transform data
+# Classes for data set processing
 ################################################################################
-file_prefix = "jsb_data"
-file_path   = "/home/dahlbom/research/dmm_pitch/data_gen/"
 
 class auditoryDataset(Dataset):
     def __init__(self, file_path, file_prefix, transform=None):
@@ -70,62 +68,120 @@ class ToTensor(object):
                 'notes': torch.from_numpy(notes)}
 
 
-bach_dataset = auditoryDataset(file_path,
-                               file_prefix,
-                               transform=transforms.Compose([Renorm(),
-                                                             ToTensor()]))
-fig = plt.figure()
-ax = []
-# for i in range(len(bach_dataset)):
-offset = 100
-for i in range(offset,offset+4):
-    sample = bach_dataset[i]
-    notes = sample['notes']
-    note_idcs = np.where(notes==1)
-    image = sample['image']
-    ax.append(fig.add_subplot(2,2,i-offset+1))
-    ax[i-offset].imshow(image[0].transpose(1,0), aspect='auto' )
-    ax[i-offset].set_title(note_idcs)
-    
-plt.show()    
-
-
-'''
 ################################################################################
 # Network definition
 ################################################################################
 
 class Net(nn.Module):
 
-    def __init__(self):
+    @staticmethod
+    def calc_dim_output(img_dim, filt_dim, stride, pad_dim):
+        return (img_dim - filt_dim + 2*pad_dim)/stride + 1
+
+    def __init__(self, img_size):
         super(Net, self).__init__()
-        # 1 input channel, six output channels, 5x5 kernels
-        self.conv1 = nn.Conv2d(3, 6, 5)
-        self.pool = nn.MaxPool2d(2,2)
-        self.conv2 = nn.Conv2d(6, 16, 5)
-        self.fc1 = nn.Linear(16 * 5 * 5, 120)
-        self.fc2 = nn.Linear(120, 84)
-        self.fc3 = nn.Linear(84, 10)
+
+        # size parameters
+        h_dim = img_size[0]
+        w_dim = img_size[1]
+        
+        # First convolutional layer
+        f1_h_dim = 25 
+        f1_w_dim = 5
+        padding1 = 0
+        stride1 = 1
+        self.conv1 = nn.Conv2d(1, 32, (f1_h_dim, f1_w_dim), stride=stride1,
+                               padding=padding1)
+        h_dim = self.calc_dim_output(h_dim, f1_h_dim, stride1, padding1)
+        w_dim = self.calc_dim_output(w_dim, f1_w_dim, stride1, padding1)
+        print("after convo1: ", h_dim, w_dim)
+        h_dim = int(h_dim)
+        w_dim = int(w_dim)
+
+        # First pooling layer
+        pool1_h_dim = 4
+        pool1_w_dim = 4
+        self.pool1 = nn.MaxPool2d(pool1_h_dim, pool1_w_dim)
+        h_dim = h_dim/pool1_h_dim
+        w_dim = w_dim/pool1_w_dim
+        print("after pool1: ", h_dim, w_dim)
+        h_dim = int(h_dim)
+        w_dim = int(w_dim)
+
+        # Second convolutional layer
+        f2_h_dim = 15
+        f2_w_dim = 3 
+        padding2 = 0
+        stride2 = 1
+        self.conv2 = nn.Conv2d(32, 16, (f2_h_dim, f2_w_dim))
+        h_dim = self.calc_dim_output(h_dim, f2_h_dim, stride2, padding2)
+        w_dim = self.calc_dim_output(w_dim, f2_w_dim, stride2, padding2)
+        print("after conv2: ", h_dim, w_dim)
+        h_dim = int(h_dim)
+        w_dim = int(w_dim)
+
+        # Second pooling layer
+        pool2_h_dim = 5
+        pool2_w_dim = 5
+        self.pool2 = nn.MaxPool2d(pool2_h_dim, pool2_w_dim)
+        h_dim = h_dim/pool2_h_dim  # this layer is pooled as well
+        w_dim = w_dim/pool2_w_dim 
+        print("after pool2: ", h_dim, w_dim)
+        h_dim = int(h_dim)
+        w_dim = int(w_dim)
+        
+
+        # Standard linear layers
+        self.lin_dims = h_dim*w_dim*16
+        print("Lin dims: ", self.lin_dims)
+
+        self.fc1 = nn.Linear(self.lin_dims, 512)
+        self.fc2 = nn.Linear(512, 256)
+        self.fc3 = nn.Linear(256, 64)
+
+        # Sigmoid out
+        self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
-        x = self.pool(F.relu(self.conv1(x)))
-        x = self.pool(F.relu(self.conv2(x)))    # same as (2,2)
-        x = x.view(-1, 16*5*5)
+        x = self.pool1(F.relu(self.conv1(x)))
+        x = self.pool2(F.relu(self.conv2(x)))    # same as (2,2)
+        x = x.view(-1, self.lin_dims) 
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         x = self.fc3(x)
+        x = self.sigmoid(x)
         return x
 
-net = Net()
+
+net = Net([600, 72])
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print("Using device: ", device, "\n")
 net.to(device)
 
 
 ################################################################################
+# Import and transform data
+################################################################################
+file_prefix = "jsb_data"
+file_path   = "/home/dahlbom/research/dmm_pitch/data_gen/"
+batch_size  = 8
+num_workers = 2
+
+bach_dataset = auditoryDataset(file_path,
+                               file_prefix,
+                               transform=transforms.Compose([Renorm(),
+                                                             ToTensor()]))
+trainloader = DataLoader(bach_dataset,
+                         batch_size=batch_size,
+                         shuffle=True,
+                         num_workers=num_workers)
+
+
+################################################################################
 # Loss Function and Optimizer
 ################################################################################
-criterion = nn.CrossEntropyLoss()
+# criterion = nn.CrossEntropyLoss()
+criterion = nn.MSELoss()
 optimizer = optim.SGD(net.parameters(), lr=0.001, momentum=0.9)
 
 
@@ -136,11 +192,11 @@ num_epochs = 2
 for epoch in range(num_epochs):
     running_loss = 0.0
     for i, data in enumerate(trainloader, 0):
-        inputs, labels = data
+        inputs, labels = data['image'], data['notes']
         inputs, labels = inputs.to(device), labels.to(device)
         optimizer.zero_grad()
         outputs = net(inputs)
-        loss = criterion(outputs, labels)
+        loss = criterion(outputs, labels.float())
         loss.backward()
         optimizer.step()
 
@@ -151,4 +207,3 @@ for epoch in range(num_epochs):
             running_loss = 0.0
 
 print('Finished Training')
-'''
