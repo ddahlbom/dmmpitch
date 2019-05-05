@@ -57,9 +57,8 @@ class Renorm(object):
 
     def __call__(self, sample):
         image, notes = sample['image'], sample['notes']
-        image /= np.max(image)  #normalize between 0 and 1
-        image -= 0.5    # center at 0
-        
+        image /= 0.5*np.max(image)  #normalize between 0 and 1
+        image -= 1    # center at 0
         return {'image': image, 'notes': notes}
 
 class ToTensor(object):
@@ -71,6 +70,15 @@ class ToTensor(object):
         return {'image': torch.from_numpy(image),
                 'notes': torch.from_numpy(notes)}
 
+class ToAC(object):
+
+    def __call__(self, sample):
+        image, notes = sample['image'], sample['notes']
+        # print("Image shape before summary transform: ", image.shape)
+        image = torch.sum(image, dim=2)
+        image = image.reshape((image.shape[1]))
+        # print("Image shape after summation: ", image.shape)
+        return {'image': image, 'notes': notes}
 
 ################################################################################
 # Network definition
@@ -82,73 +90,14 @@ class Net(nn.Module):
     def calc_dim_output(img_dim, filt_dim, stride, pad_dim):
         return (img_dim - filt_dim + 2*pad_dim)/stride + 1
 
-    def __init__(self, img_size, drop_p=0.0):
+    def __init__(self, ac_length=600, drop_p=0.0):
         super(Net, self).__init__()
-
-        # size parameters
-        h_dim = img_size[0]
-        w_dim = img_size[1]
-        print("Dims (h, w): ", h_dim, w_dim)
-        n1 = 50     #number of filters in first layer
-        n2 = 50     #number of filters in second layer
-        
-        # First convolutional layer
-        #f1_h_dim = 25 
-        f1_h_dim = 51 
-        f1_w_dim = 11 
-        padding1 = 0
-        stride1 = 1
-        self.conv1 = nn.Conv2d(1, n1, (f1_h_dim, f1_w_dim), stride=stride1,
-                               padding=padding1)
-        h_dim = self.calc_dim_output(h_dim, f1_h_dim, stride1, padding1)
-        w_dim = self.calc_dim_output(w_dim, f1_w_dim, stride1, padding1)
-        print("after conv1: ", h_dim, w_dim)
-        h_dim = int(h_dim)
-        w_dim = int(w_dim)
-
-        # First pooling layer
-        pool1_h_dim = 2
-        #pool1_h_dim = 2
-        pool1_w_dim = 4
-        self.pool1 = nn.MaxPool2d((pool1_h_dim, pool1_w_dim))
-        h_dim = h_dim/pool1_h_dim
-        w_dim = w_dim/pool1_w_dim
-        print("after pool1: ", h_dim, w_dim)
-        h_dim = int(h_dim)
-        w_dim = int(w_dim)
-
-        # Second convolutional layer
-        f2_h_dim = 15 
-        # f2_h_dim = 151 
-        f2_w_dim = 5 
-        padding2 = 0
-        stride2 = 1
-        self.conv2 = nn.Conv2d(n1, n2, (f2_h_dim, f2_w_dim))
-        h_dim = self.calc_dim_output(h_dim, f2_h_dim, stride2, padding2)
-        w_dim = self.calc_dim_output(w_dim, f2_w_dim, stride2, padding2)
-        print("after conv2: ", h_dim, w_dim)
-        h_dim = int(h_dim)
-        w_dim = int(w_dim)
-
-        # Second pooling layer
-        pool2_h_dim = 4
-        # pool2_h_dim = 3 
-        pool2_w_dim = 4
-        self.pool2 = nn.MaxPool2d((pool2_h_dim, pool2_w_dim))
-        h_dim = h_dim/pool2_h_dim  # this layer is pooled as well
-        w_dim = w_dim/pool2_w_dim 
-        print("after pool2: ", h_dim, w_dim)
-        h_dim = int(h_dim)
-        w_dim = int(w_dim)
-        
-
         # Standard linear layers
-        self.lin_dims = h_dim*w_dim*n2
-        print("Lin dims: ", self.lin_dims)
-
-        self.fc1 = nn.Linear(self.lin_dims, 512)
-        self.fc2 = nn.Linear(512, 256)
-        self.fc3 = nn.Linear(256, 64)
+        self.fc1 = nn.Linear(ac_length, 1024)
+        self.fc2 = nn.Linear(1024, 1024)
+        self.fc3 = nn.Linear(1024, 512)
+        self.fc4 = nn.Linear(512, 256)
+        self.fc5 = nn.Linear(256, 64)
 
         # Sigmoid out
         self.sigmoid = nn.Sigmoid()
@@ -159,22 +108,27 @@ class Net(nn.Module):
         self
 
     def forward(self, x):
-        x = F.relu(self.conv1(x))
-        #print("After Conv1:\t", x.shape[2:])
-        x = self.pool1(x)
-        #print("After Pool1: \t", x.shape[2:])
-        x = F.relu(self.conv2(x))   
-        #print("After Conv2:\t", x.shape[2:])
-        x = self.pool2(x)
-        #print("After Pool2:\t", x.shape[2:])
-        x = x.view(-1, self.lin_dims) 
-        #x = x.view(-1, x.shape[2]*x.shape[3]) 
-        #x = self.dropout(x)
         x = F.relu(self.fc1(x))
-        #x = self.dropout(x)
         x = F.relu(self.fc2(x))
-        x = self.fc3(x)
-        # x = self.sigmoid(x) ` # not needed if using BCEWithLogitsLoss
+        x = F.relu(self.fc3(x))
+        x = F.relu(self.fc4(x))
+        x = self.fc5(x)
+        ## Old stuff below -- delete after no longer needed for reference
+        # #print("After Conv1:\t", x.shape[2:])
+        # x = self.pool1(x)
+        # #print("After Pool1: \t", x.shape[2:])
+        # x = F.relu(self.conv2(x))   
+        # #print("After Conv2:\t", x.shape[2:])
+        # x = self.pool2(x)
+        # #print("After Pool2:\t", x.shape[2:])
+        # x = x.view(-1, self.lin_dims) 
+        # #x = x.view(-1, x.shape[2]*x.shape[3]) 
+        # #x = self.dropout(x)
+        # x = F.relu(self.fc1(x))
+        # #x = self.dropout(x)
+        # x = F.relu(self.fc2(x))
+        # x = self.fc3(x)
+        # # x = self.sigmoid(x) ` # not needed if using BCEWithLogitsLoss
         return x
 
 
@@ -183,7 +137,7 @@ class Net(nn.Module):
 ################################################################################
 if __name__=="__main__":
     ## Run parameters
-    file_prefix = "jsb_data_ib"
+    file_prefix = "jsb_data_ac"
     # file_path   = "/home/dahlbom/research/dmm_pitch/data_gen/"
     file_path   = "C:/Users/Beranek/Documents/dahlbom/dmm_pitch/cnn_front_end/train_data/"
     save_prefix = "jsb_ib"
@@ -193,7 +147,7 @@ if __name__=="__main__":
     num_epochs = 10
 
     ## Set up network
-    net = Net([600, 72])
+    net = Net(ac_length=600)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print("Using device: ", device, "\n")
     net.to(device)
@@ -202,14 +156,17 @@ if __name__=="__main__":
     # criterion = nn.CrossEntropyLoss()
     # criterion = nn.MSELoss()
     criterion = nn.BCEWithLogitsLoss()
-    optimizer = optim.SGD(net.parameters(), lr=0.0001, momentum=0.9)
+    optimizer = optim.SGD(net.parameters(), lr=0.01, momentum=0.9)
 
     ## Load data
     print("Loading and transforming data...")
     bach_dataset = auditoryDataset(file_path,
                                    file_prefix,
-                                   transform=transforms.Compose([Renorm(),
-                                                                 ToTensor()]))
+                                   # transform=transforms.Compose([Renorm(),
+                                   #                               ToTensor(),
+                                   #                               ToAC()]))
+                                   transform=transforms.Compose([ToTensor(),
+                                                                 ToAC()]))
     print("Making data loader...")
     trainloader = DataLoader(bach_dataset,
                              batch_size=batch_size,
@@ -222,6 +179,12 @@ if __name__=="__main__":
         running_loss = 0.0
         for i, data in enumerate(trainloader, 0):
             inputs, labels = data['image'], data['notes']
+            # print("Input shape: ", inputs.shape)
+            # fig = plt.figure()
+            # for k in range(inputs.shape[0]):
+            #     ax = fig.add_subplot(2,int(inputs.shape[0]//2), k+1)
+            #     ax.plot(inputs[k,:].numpy())
+            plt.show()
             inputs, labels = inputs.to(device), labels.to(device)
             optimizer.zero_grad()
             outputs = net(inputs)
