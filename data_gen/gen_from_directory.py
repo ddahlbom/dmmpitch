@@ -9,6 +9,7 @@ import glob
 import sys
 sys.path.insert(0, '/home/dahlbom/research/ccarfac')
 import pycarfac as pyc
+import scipy.io.wavfile as wav 
 
 ################################################################################
 # Animation Utilities
@@ -91,8 +92,8 @@ greenwood = lambda x : 165.4*(10**(2.1*x)-1)
 ################################################################################
 
 ## File locations and names (ultimately set in CLI)
-midi_path = "/home/dahlbom/research/dmm_pitch/data_gen/jsb_chorales"
-file_name = "jsb_data"
+midi_path = "/home/dahlbom/research/dmm_pitch/data_gen/jsb_chorales_ib"
+file_name = "jsb_data_ib"
 
 ## Synthesis Parameters
 instrument_num = 53-1           # 'Ahh Choir'
@@ -117,6 +118,9 @@ trig_win_t = frame_size_t
 adv_t = trig_win_t
 num_trig_win = 3
 
+## Other Params
+calc_ac = False
+
 
 
 ################################################################################
@@ -131,7 +135,8 @@ num_files = len(midi_files)
 y_vals = np.zeros((0,num_pitches))
 x_vals = np.zeros((0,num_channels,frame_size_n), dtype=np.float32)
 block_num = 1
-for k, mf in enumerate(midi_files):
+block_time = 0.0
+for k, mf in enumerate(midi_files[:num_files]):
     print("\n-------------------- Starting file {} of {} --------------------".format(k+1,num_files))
 
     # Load the data
@@ -139,6 +144,11 @@ for k, mf in enumerate(midi_files):
 
     # Extract the piano roll (i.e. the ground truth) 
     end_time = pm.get_end_time()
+    block_time += end_time
+    if end_time > 150.0:
+        print("File {} has length {}.  It's too long! Skipping.".format(k+1,
+                end_time))
+        continue
     c_times = np.arange(0, end_time, 1./fs_sym)
     c_times += frame_size_t/2.
     c_times = c_times[:-1]  # last one should be outside of range after offset
@@ -153,9 +163,14 @@ for k, mf in enumerate(midi_files):
     # Synthesize the audio
     audio = pm.fluidsynth(fs=fs_aud,
                           sf2_path='/usr/share/soundfonts/FluidR3_GM.sf2')
+    
+    # wav.write("carfac_killer_{}.wav".format(k), fs_aud, audio)
+
+    ## Comment out to next double pound
     # audio = audio[2*fs_aud:4*fs_aud] # isolate first two seconds
     # num_samps = len(audio)
     # t = np.arange(num_samps)/fs_aud
+    ##
 
     # Generate a Neural Activity Pattern (nap) from audio
     nap, channel_cfs = pyc.carfac_nap(audio,
@@ -178,43 +193,46 @@ for k, mf in enumerate(midi_files):
     # Plotting below just used for demonstration. Delete later
 
     ## Plot NAP
-     fig = plt.figure()
-     p = 0.01 # offset scaling factor
-     skip_step = 4
-     ytick_vals = np.arange(num_channels)*p
-     ytick_vals = ytick_vals[::skip_step]
-     ytick_labels = ["{:.0f}".format(f) for f in np.flip(channel_cfs)]
-     ytick_labels = ytick_labels[::skip_step]
-     plt.yticks(ytick_vals, ytick_labels)
-     for k in range(num_channels):
-         plt.fill_between(t, 0, nap[k,:num_samps]+p*(num_channels-k), facecolor='w',
-                 edgecolor='k', linewidth=0.6)
+    fig = plt.figure()
+    p = 0.01 # offset scaling factor
+    skip_step = 4
+    ytick_vals = np.arange(num_channels)*p
+    ytick_vals = ytick_vals[::skip_step]
+    ytick_labels = ["{:.0f}".format(f) for f in np.flip(channel_cfs)]
+    ytick_labels = ytick_labels[::skip_step]
+    plt.yticks(ytick_vals, ytick_labels)
+    for k in range(num_channels):
+        plt.fill_between(t, 0, nap[k,:num_samps]+p*(num_channels-k), facecolor='w',
+                edgecolor='k', linewidth=0.6)
     
     ## Animate SAI
     num_frames = sai.shape[0]
     animate_SAI(sai, fs_aud, frames_t, colormap=cm.binary,
             adv_time=50)
     '''
+    if calc_ac:
+        # generate frames directly from autocorrelation of nap frames 
+        x = gen_nap_ac_frames(nap, fs_aud, c_times, frame_size_t)
+    else: 
+        # generate frames directly from nap (no SAI, no AC)
+        x = gen_nap_frames(nap, fs_aud, c_times, frame_size_t)
 
-    # generate frames directly from nap (no SAI, no AC)
-    x = gen_nap_frames(nap, fs_aud, c_times, frame_size_t)
-
-    # generate frames directly from autocorrelation of nap frames 
-    # nap_frames = gen_nap_ac_frames(nap, fs_aud, c_times, frame_size_t)
 
     x = np.array(x, dtype=np.float32)
     x_vals = np.concatenate([x_vals, x])
     y_vals = np.concatenate([y_vals, y])
 
-    '''
-    fig = plt.figure()
-    num_frames = 10
-    ax = []
-    for k in range(num_frames):
-        ax.append(fig.add_subplot(2,5,k+1))
-        ax[k].imshow(x[k+50], aspect="auto", cmap=cm.binary)
-    '''
-    if (k+1) % 10 == 0:
+    ## plot samples
+    # fig = plt.figure()
+    # num_frames = 10
+    # ax = []
+    # for k in range(num_frames):
+    #     ax.append(fig.add_subplot(2,5,k+1))
+    #     ax[k].imshow(x[k+50], aspect="auto", cmap=cm.binary)
+    # plt.show()
+    ##
+
+    if block_time >= 400.0:
         print("\nWriting block {}...".format(block_num))
         f_name = file_name + "_{:04d}".format(block_num) + ".bin"
         with open(f_name, "wb") as f:
@@ -223,6 +241,7 @@ for k, mf in enumerate(midi_files):
         x_vals = np.zeros((0,num_channels,frame_size_n), dtype=np.float32)
         print("Finished writing.\n")
         block_num += 1
+        block_time = 0.0
      
 # clean up and write data
 print("label shapes: ", y_vals.shape)
