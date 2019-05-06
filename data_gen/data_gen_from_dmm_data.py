@@ -105,6 +105,24 @@ def gen_nap_ac_frames(nap, fs_aud, times, frame_size_t):
     return frames
 
 
+def gen_nap_sac_frames(nap, fs_aud, times, frame_size_t):
+    # Like above, but returns a summary-AC -- i.e. all channels summed
+    nap_len_n = len(nap)
+    frame_size_n = int(fs_aud*frame_size_t)
+    c_indices = [int(t*fs_aud) for t in times]
+    pad_lower = int(frame_size_n//2)
+    pad_upper = frame_size_n - pad_lower
+    # dims are: center time, channel, frame length 
+    frames = np.zeros( (len(times), nap.shape[0], frame_size_n) )
+    for k, idx in enumerate(c_indices):
+        for c in range(nap.shape[0]):   # channel index
+            frames[k,c,:] = np.correlate(nap[c,(idx-pad_lower):(idx+pad_upper)],
+                                         nap[c,(idx-pad_lower):(idx+pad_upper)],
+                                         mode='same')
+    frames = np.sum(frames, axis=1)
+    return frames[:,int(frame_size_n//2):]
+
+
 ################################################################################
 # Other utility Functions
 ################################################################################
@@ -115,14 +133,10 @@ greenwood = lambda x : 165.4*(10**(2.1*x)-1)
 ################################################################################
 
 ## File locations and names (ultimately set in CLI)
-midi_path = "/home/dahlbom/research/dmm_pitch/data_gen/jsb_chorales_ib"
-file_name = "jsb_data_ib"
+# midi_path = "/home/dahlbom/research/dmm_pitch/data_gen/jsb_chorales_ib"
+# file_name = "jsb_data_ib"
 
 ## Synthesis Parameters
-instrument_num = 53-1           # 'Ahh Choir'
-pitch_lo = 13+20    # A1 (55 Hz)
-pitch_hi = 76+20    # C7 (2093 Hz)
-num_pitches = pitch_hi - pitch_lo + 1
 fs_aud = 12000 
 frame_size_t = 0.05             # corresponds, ideally, to an fs_sym = 20 Hz
 # derived quantities
@@ -145,8 +159,10 @@ num_trig_win = 3
 calc_ac = False
 MIDI_lo = 21
 MIDI_hi = 21 + 87
+num_pitches = MIDI_hi - MIDI_lo + 1
 program = 52    # Choral 'Ah'
 fs_midi = 2     # Piano roll sampling frequency
+win_size_n = 2048   # size of window for ac -- centered in frame
 
 
 ################################################################################
@@ -154,161 +170,82 @@ fs_midi = 2     # Piano roll sampling frequency
 ################################################################################
 # Load data
 data = poly.load_data(poly.JSB_CHORALES)
-training_seq_lengths = data['train']['sequence_lengths']
-training_data_sequences = data['train']['sequences']
-test_seq_lengths = data['test']['sequence_lengths']
-test_data_sequences = data['test']['sequences']
-val_seq_lengths = data['valid']['sequence_lengths']
-val_data_sequences = data['valid']['sequences']
+data_categories = ['train', 'test', 'valid']
 
+data_seqs = {} 
+seq_lengths = {} 
+for category in data_categories:
+    data_seqs[category] = data[category]['sequences']
+    seq_lengths[category] = data[category]['sequence_lengths']
+
+# training_seq_lengths = data['train']['sequence_lengths']
+# training_data_sequences = data['train']['sequences']
+# test_seq_lengths = data['test']['sequence_lengths']
+# test_data_sequences = data['test']['sequences']
+# val_seq_lengths = data['valid']['sequence_lengths']
+# val_data_sequences = data['valid']['sequences']
 
 ## Generate training data
-num_training = training_data_sequences.shape[0]
-for k in range(num_training):
-    # Generate MIDI data from piano roll
-    seq_len = test_seq_lengths[k].item()
-    piano_roll = test_data_sequences[k,:seq_len,:].data.numpy()
-    piano_roll_full = np.zeros((128,seq_len))
-    piano_roll_full[MIDI_lo:MIDI_hi+1,:] += piano_roll.transpose().astype(int)
-    piano_roll_full *= 64
-    pm = piano_roll_to_pretty_midi(piano_roll_full.astype(float),
-            fs=fs_midi, program=program)
+for category in data_categories:
+    y_vals = np.zeros((0,num_pitches))
+    x_vals = np.zeros((0,int(win_size_n//2)), dtype=np.float32)
+    seq_length = seq_lengths[category]
+    data_seq   = data_seqs[category]
+    seq_length = seq_length[:10]
+    data_seq   = data_seq[:10]
+    num_sequences = data_seq.shape[0]
+    for k in range(num_sequences):
+        print("________________________________________________________________________________")
+        print("Started Chorale {} of {} for category {}".format(k+1,
+                                                                num_sequences, 
+                                                                category))
+        print("________________________________________________________________________________")
 
-    # Generate Audio from MIDI
+        # Generate MIDI data from piano roll
+        seq_len = seq_length[k].item()
+        piano_roll = data_seq[k,:seq_len,:].data.numpy()
+        piano_roll_full = np.zeros((128,seq_len))
+        piano_roll_full[MIDI_lo:MIDI_hi+1,:] += piano_roll.transpose().astype(int)
+        piano_roll_full *= 64   # make nonzero
+        pm = piano_roll_to_pretty_midi(piano_roll_full.astype(float),
+                fs=fs_midi, program=program)
+
+        # Generate Audio from MIDI
+        audio = pm.fluidsynth(fs=fs_aud,
+                              sf2_path='/usr/share/soundfonts/FluidR3_GM.sf2')
+        
+        # Generate Neural Activity Pattern (nap) from audio 
+        nap, channel_cfs = pyc.carfac_nap(audio,
+                                          float(fs_aud),
+                                          num_sections=num_channels,
+                                          x_lo=x_lo,
+                                          x_hi=x_hi,
+                                          b=0.5)
+
+        # Generate frames from synthensized audio
+        len_sig_n = len(audio)
+        len_frame_n = len_sig_n/seq_len
+        c_times_n = np.arange(0,len_sig_n,len_frame_n)+int(len_frame_n//2)
+        c_times_t = c_times_n/fs_aud
+        win_size_t = win_size_n/fs_aud
+        x = gen_nap_sac_frames(nap, fs_aud, c_times_t, win_size_t)
+
+        assert len(x) == seq_len
+        
+        # idx = np.random.randint(len(frames), size=10)
+        # fig = plt.figure()
+        # for p in range(len(idx)):
+        #     ax = fig.add_subplot(2,5,p+1)
+        #     ax.plot(frames[idx[p]])
+
+        x = np.array(x, dtype=np.float32)
+        x_vals = np.concatenate([x_vals, x])
+        y_vals = np.concatenate([y_vals, piano_roll])
 
 
-    
+    print("Writing results to disk...")
+    f_name = "poly_synth_data_{}".format(category) + ".bin"
+    with open(f_name, "wb") as f:
+        pickle.dump((y_vals, x_vals), f)
+    print("Finished!")
 
-
-
-
-################################################################################
-# Old version
-################################################################################
-# midi_files = glob.glob(midi_path + "/*.mid")
-# num_files = len(midi_files)
-# 
-# # Generate data for each file
-# y_vals = np.zeros((0,num_pitches))
-# x_vals = np.zeros((0,num_channels,frame_size_n), dtype=np.float32)
-# block_num = 1
-# block_time = 0.0
-# for k, mf in enumerate(midi_files[:num_files]):
-#     print("\n-------------------- Starting file {} of {} --------------------".format(k+1,num_files))
-# 
-#     # Load the data
-#     pm = pretty_midi.PrettyMIDI(mf)
-# 
-#     # Extract the piano roll (i.e. the ground truth) 
-#     end_time = pm.get_end_time()
-#     block_time += end_time
-#     if end_time > 150.0:
-#         print("File {} has length {}.  It's too long! Skipping.".format(k+1,
-#                 end_time))
-#         continue
-#     c_times = np.arange(0, end_time, 1./fs_sym)
-#     c_times += frame_size_t/2.
-#     c_times = c_times[:-1]  # last one should be outside of range after offset
-#     y = pm.get_piano_roll(times=c_times)[pitch_lo:pitch_hi+1]
-#     y = np.swapaxes(y, 0, 1)
-#     y = np.where(y != 0, 1, 0)  #turn into binary 1/0 (on/off)
-# 
-#     # Set the instruments to choir
-#     for i in pm.instruments:
-#         i.program = instrument_num
-# 
-#     # Synthesize the audio
-#     audio = pm.fluidsynth(fs=fs_aud,
-#                           sf2_path='/usr/share/soundfonts/FluidR3_GM.sf2')
-#     
-#     # wav.write("carfac_killer_{}.wav".format(k), fs_aud, audio)
-# 
-#     ## Comment out to next double pound
-#     # audio = audio[2*fs_aud:4*fs_aud] # isolate first two seconds
-#     # num_samps = len(audio)
-#     # t = np.arange(num_samps)/fs_aud
-#     ##
-# 
-#     # Generate a Neural Activity Pattern (nap) from audio
-#     nap, channel_cfs = pyc.carfac_nap(audio,
-#                                       float(fs_aud),
-#                                       num_sections=num_channels,
-#                                       x_lo=x_lo,
-#                                       x_hi=x_hi,
-#                                       b=0.5)
-# 
-#     '''
-#     ## Generate SAI
-#     sai, frames_t, delays_t = pyc.carfac_sai(nap, 
-#                                              fs_aud,
-#                                              trig_win_t=trig_win_t,
-#                                              adv_t = adv_t,
-#                                              num_trig_win = num_trig_win)
-#     print("Length of answers: ", len(y))
-#     print("Number of frames:  ", len(frames_t))
-# 
-#     # Plotting below just used for demonstration. Delete later
-# 
-#     ## Plot NAP
-#     fig = plt.figure()
-#     p = 0.01 # offset scaling factor
-#     skip_step = 4
-#     ytick_vals = np.arange(num_channels)*p
-#     ytick_vals = ytick_vals[::skip_step]
-#     ytick_labels = ["{:.0f}".format(f) for f in np.flip(channel_cfs)]
-#     ytick_labels = ytick_labels[::skip_step]
-#     plt.yticks(ytick_vals, ytick_labels)
-#     for k in range(num_channels):
-#         plt.fill_between(t, 0, nap[k,:num_samps]+p*(num_channels-k), facecolor='w',
-#                 edgecolor='k', linewidth=0.6)
-#     
-#     ## Animate SAI
-#     num_frames = sai.shape[0]
-#     animate_SAI(sai, fs_aud, frames_t, colormap=cm.binary,
-#             adv_time=50)
-#     '''
-#     if calc_ac:
-#         # generate frames directly from autocorrelation of nap frames 
-#         x = gen_nap_ac_frames(nap, fs_aud, c_times, frame_size_t)
-#     else: 
-#         # generate frames directly from nap (no SAI, no AC)
-#         x = gen_nap_frames(nap, fs_aud, c_times, frame_size_t)
-# 
-# 
-#     x = np.array(x, dtype=np.float32)
-#     x_vals = np.concatenate([x_vals, x])
-#     y_vals = np.concatenate([y_vals, y])
-# 
-#     ## plot samples
-#     # fig = plt.figure()
-#     # num_frames = 10
-#     # ax = []
-#     # for k in range(num_frames):
-#     #     ax.append(fig.add_subplot(2,5,k+1))
-#     #     ax[k].imshow(x[k+50], aspect="auto", cmap=cm.binary)
-#     # plt.show()
-#     ##
-# 
-#     if block_time >= 400.0:
-#         print("\nWriting block {}...".format(block_num))
-#         f_name = file_name + "_{:04d}".format(block_num) + ".bin"
-#         with open(f_name, "wb") as f:
-#             pickle.dump((y_vals, x_vals), f)
-#         y_vals = np.zeros((0,num_pitches))
-#         x_vals = np.zeros((0,num_channels,frame_size_n), dtype=np.float32)
-#         print("Finished writing.\n")
-#         block_num += 1
-#         block_time = 0.0
-#      
-# # clean up and write data
-# print("label shapes: ", y_vals.shape)
-# print("data shapes:  ", x_vals.shape)
-# if (k+1) % 10 != 0:
-#     print("\nWriting final block ({}) of output ...".format(block_num))
-#     f_name = file_name + "_{:04d}".format(block_num) + ".bin"
-#     with open(f_name, "wb") as f:
-#         pickle.dump((y_vals, x_vals), f)
-#     print("Finished writing.\n")
-# 
-# 
-# 
