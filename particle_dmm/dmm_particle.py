@@ -209,7 +209,7 @@ def main(args):
     ## Load the front-end model
     net = dnn.Net(ac_length=1024)
     save_prefix = "dnn_frontend_poly"
-    save_path   = "C:/Users/Beranek/Documents/dahlbom/dmm_pitch/dnn_front_end/saved_models/"
+    save_path   = project_directory + "dnn_front_end/saved_models/"
     net.load_state_dict(torch.load(save_path + save_prefix + ".pt"))
     
     ## Select a testing set and collect data and initial distribution
