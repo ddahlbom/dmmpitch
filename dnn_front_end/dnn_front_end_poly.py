@@ -193,11 +193,6 @@ if __name__=="__main__":
                                  batch_size=batch_size,
                                  shuffle=True,
                                  num_workers=num_workers)
-        def precision():
-            pass
-
-        def recall():
-            pass
         with torch.no_grad():
             num_detected = 0
             num_in_gt = 0
