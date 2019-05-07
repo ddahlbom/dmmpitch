@@ -48,21 +48,6 @@ def gen_nap_ac_frames(nap, fs_aud, times, frame_size_t):
     return frames
 
 
-def gen_nap_sac_frames(nap, fs_aud, times, frame_size_t):
-    # Like above, but returns a summary-AC -- i.e. all channels summed
-    nap_len_n = len(nap)
-    frame_size_n = int(fs_aud*frame_size_t)
-    c_indices = [int(t*fs_aud) for t in times]
-    pad_lower = int(frame_size_n//2)
-    pad_upper = frame_size_n - pad_lower
-    # dims are: center time, channel, frame length 
-    frames = np.zeros( (len(times), nap.shape[0], frame_size_n) )
-    for k, idx in enumerate(c_indices):
-        for c in range(nap.shape[0]):   # channel index
-            frames[k,c,:] = np.correlate(nap[c,(idx-pad_lower):(idx+pad_upper)],
-                                         nap[c,(idx-pad_lower):(idx+pad_upper)],
-                                         mode='same')
-    return np.sum(frames, axis=1)
 
 
 def animate_SAI(I, fs, times, colormap = cm.binary, adv_time = 50):

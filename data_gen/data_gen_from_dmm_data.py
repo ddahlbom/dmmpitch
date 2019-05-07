@@ -172,18 +172,13 @@ win_size_n = 2048   # size of window for ac -- centered in frame
 data = poly.load_data(poly.JSB_CHORALES)
 data_categories = ['train', 'test', 'valid']
 
+# Set up the different data sets (training, validation, testing) so they can be
+# iterated over
 data_seqs = {} 
 seq_lengths = {} 
 for category in data_categories:
     data_seqs[category] = data[category]['sequences']
     seq_lengths[category] = data[category]['sequence_lengths']
-
-# training_seq_lengths = data['train']['sequence_lengths']
-# training_data_sequences = data['train']['sequences']
-# test_seq_lengths = data['test']['sequence_lengths']
-# test_data_sequences = data['test']['sequences']
-# val_seq_lengths = data['valid']['sequence_lengths']
-# val_data_sequences = data['valid']['sequences']
 
 ## Generate training data
 for category in data_categories:
@@ -191,8 +186,8 @@ for category in data_categories:
     x_vals = np.zeros((0,int(win_size_n//2)), dtype=np.float32)
     seq_length = seq_lengths[category]
     data_seq   = data_seqs[category]
-    seq_length = seq_length[:10]
-    data_seq   = data_seq[:10]
+    # seq_length = seq_length[:10]
+    # data_seq   = data_seq[:10]
     num_sequences = data_seq.shape[0]
     for k in range(num_sequences):
         print("________________________________________________________________________________")
@@ -215,34 +210,32 @@ for category in data_categories:
                               sf2_path='/usr/share/soundfonts/FluidR3_GM.sf2')
         
         # Generate Neural Activity Pattern (nap) from audio 
+        print("Calculating CARFAC NAP...")
         nap, channel_cfs = pyc.carfac_nap(audio,
                                           float(fs_aud),
                                           num_sections=num_channels,
                                           x_lo=x_lo,
                                           x_hi=x_hi,
                                           b=0.5)
+        print("Finished.")
 
         # Generate frames from synthensized audio
         len_sig_n = len(audio)
         len_frame_n = len_sig_n/seq_len
-        c_times_n = np.arange(0,len_sig_n,len_frame_n)+int(len_frame_n//2)
+        num_frames = int(len_sig_n/len_frame_n)
+        c_times_n = np.arange(0,num_frames)*len_frame_n+int(len_frame_n//2)
         c_times_t = c_times_n/fs_aud
         win_size_t = win_size_n/fs_aud
+        print("Calculating frame data...")
         x = gen_nap_sac_frames(nap, fs_aud, c_times_t, win_size_t)
-
+        print("Finished.")
         assert len(x) == seq_len
         
-        # idx = np.random.randint(len(frames), size=10)
-        # fig = plt.figure()
-        # for p in range(len(idx)):
-        #     ax = fig.add_subplot(2,5,p+1)
-        #     ax.plot(frames[idx[p]])
-
         x = np.array(x, dtype=np.float32)
         x_vals = np.concatenate([x_vals, x])
         y_vals = np.concatenate([y_vals, piano_roll])
 
-
+    # Write resulting data
     print("Writing results to disk...")
     f_name = "poly_synth_data_{}".format(category) + ".bin"
     with open(f_name, "wb") as f:
