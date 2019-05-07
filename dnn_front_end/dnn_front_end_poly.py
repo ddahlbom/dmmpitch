@@ -9,8 +9,12 @@ from torchvision import transforms, utils
 import numpy as np
 import matplotlib.pyplot as plt
 
+import os
 import sys
-sys.path.insert(0, '/home/dahlbom/research/dmm_pitch/data_gen/')
+from pathlib import Path
+# project_directory = Path.cwd().parents[0]
+# os.path.join(os.path.curdir
+cur_dir = os.path.curdir
 import pickle
 import glob
 import time
@@ -116,9 +120,13 @@ if __name__=="__main__":
     TEST = True
     file_prefix_train = "poly_synth_data_train"
     file_prefix_test = "poly_synth_data_test"
-    file_path   = "C:/Users/Beranek/Documents/dahlbom/dmm_pitch/data_gen/"
+    # file_path   = "C:/Users/Beranek/Documents/dahlbom/dmm_pitch/data_gen/"
+    file_path = os.path.join(cur_dir + "/../data_gen/")
+    # file_path   = str(project_directory / 'data_gen')
     save_prefix = "dnn_frontend_poly"
-    save_path   = "C:/Users/Beranek/Documents/dahlbom/dmm_pitch/dnn_front_end/saved_models/"
+    # save_path   = "C:/Users/Beranek/Documents/dahlbom/dmm_pitch/dnn_front_end/saved_models/"
+    # save_path   = str(project_directory / 'dnn_front_end' / 'saved_models/')
+    save_path = os.path.join(cur_dir + "/../dnn_front_end/saved_models/")
     batch_size  = 10 
     num_workers = 0
     num_epochs = 200
@@ -129,7 +137,7 @@ if __name__=="__main__":
     print("Using device: ", device, "\n")
     net.to(device)
     
-    ## Set up loss fucntion and optimizer
+    ## Set up loss function and optimizer
     # criterion = nn.CrossEntropyLoss()
     # criterion = nn.MSELoss()
     criterion = nn.BCEWithLogitsLoss()

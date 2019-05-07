@@ -171,7 +171,67 @@ class DMM(nn.Module):
         if use_cuda:
             self.cuda()
 
+    def get_sample_with_logprobs(self, z_prev, num):
+        # Essentially run the model forward, getting samples of z_n and x_n.
+        # Needs to be "seeded" with an initial z0.
+
+        # Get distribution parameters
+        z_loc, z_scale = self.trans(z_prev)
+        z_dist = dist.Normal(z_loc, z_scale)
+
+        # Sample latent space and get log-probability of result
+        z_t = pyro.sample("z_gen_%d" % num,
+                          z_dist)
+        lp_z_t = z_dist.log_prob(z_t)
+
+        # Get Emission Parameters
+        emission_probs_t = self.emitter(z_t)
+        x_dist = dist.Bernoulli(emission_probs_t)
+
+        # Sample emission and get log-probability of result
+        x_t = pyro.sample("x_gen_%d" % num,
+                          x_dist)
+        lp_x_t = x_dist.log_prob(x_t)
+
+        return z_t, lp_z_t, x_t, lp_x_t
+
+
+    def get_sample(self, z_prev, num):
+        # Essentially run the model forward, getting samples of z_n and x_n.
+        # Needs to be "seeded" with an initial z0.
+
+        # Get distribution parameters
+        z_loc, z_scale = self.trans(z_prev)
+        z_dist = dist.Normal(z_loc, z_scale)
+
+        # Sample latent space
+        z_t = pyro.sample("z_gen_%d" % num,
+                          z_dist)
+
+        # Get Emission Parameters
+        emission_probs_t = self.emitter(z_t)
+        x_dist = dist.Bernoulli(emission_probs_t)
+
+        # Sample emission
+        x_t = pyro.sample("x_gen_%d" % num,
+                          x_dist)
+
+        return z_t.detach(), x_t.detach()
+
+    def get_z1_dist(self, sequence):
+        # Run a sequence through the guide to get the parameters for the
+        # distribution of the first hidden state.  This can then be used to
+        # start a sequence of samples.  
+        # 
+        # Must sypply a torch tensor that has the time axis reversed.
+
+        rnn_output, _ = self.rnn(sequence.unsqueeze(0))
+        z_prev = self.z_q_0
+        z_loc, z_scale = self.combiner(z_prev, rnn_output[0,0,:])
+        return dist.Normal(z_loc, z_scale)
     # the model p(x_{1:T} | z_{1:T}) p(z_{1:T})
+
+
     def model(self, mini_batch, mini_batch_reversed, mini_batch_mask,
               mini_batch_seq_lengths, annealing_factor=1.0):
 
