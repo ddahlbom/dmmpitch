@@ -1,6 +1,7 @@
 import argparse
 import time
 from os.path import exists
+import sys
 
 import numpy as np
 import torch
@@ -21,14 +22,17 @@ import pretty_midi
 import scipy.io.wavfile as wav
 
 import partpitchutils as pp
-import sys
+sys.path.insert(0, '/home/dahlbom/research/ccarfac')
+import pycarfac as pyc
 import os
 # from pathlib import Path
 # wd = Path.cwd()
 # project_directory = wd.parents[0]
 project_directory = os.path.curdir + '/../'
 sys.path.insert(0, project_directory + 'dnn_front_end/')
+sys.path.insert(0, project_directory + 'data_gen/')
 import dnn_front_end_poly as dnn
+import data_gen_from_dmm_data as datagen
 import dmm as dmm_model
 
 
@@ -168,6 +172,7 @@ def main(args):
     ## instantiate the dmm
     dmm = dmm_model.DMM(rnn_dropout_rate=args.rnn_dropout_rate, num_iafs=args.num_iafs,
               iaf_dim=args.iaf_dim, use_cuda=args.cuda)
+    dmm.eval()
 
     # setup optimizer
     adam_params = {"lr": args.learning_rate, "betas": (args.beta1, args.beta2),
@@ -193,11 +198,12 @@ def main(args):
     if args.load_opt != '' and args.load_model != '':
         load_checkpoint()
 
+
     #######################################
     # LOAD TRAINED MODEL AND SAMPLE FROM IT 
     #######################################
     ## Basic parameters
-    fs_aud = 16000  # sampling rate for audio rendering
+    fs_aud = 12000  # sampling rate for audio rendering
     fig = plt.figure()
     ax_gt = fig.add_subplot(1,3,1)
     ax_estimated = fig.add_subplot(1,3,2)
@@ -208,6 +214,7 @@ def main(args):
 
     ## Load the front-end model
     net = dnn.Net(ac_length=1024)
+    net.eval()
     save_prefix = "dnn_frontend_poly"
     save_path   = project_directory + "dnn_front_end/saved_models/"
     net.load_state_dict(torch.load(save_path + save_prefix + ".pt"))
@@ -224,25 +231,89 @@ def main(args):
     piano_roll_gt_full[MIDI_lo:MIDI_hi+1,:] += piano_roll_gt.transpose().astype(int)
     piano_roll_gt_full *= 64
     pm = piano_roll_to_pretty_midi(piano_roll_gt_full.astype(float), fs=2, program=52)
-    audio = pm.fluidsynth(fs=16000,
+    audio = pm.fluidsynth(fs=fs_aud,
                           sf2_path='/usr/share/soundfonts/FluidR3_GM.sf2')
-    wav.write("test_ground_truth_out.wav", 16000, audio)
+    wav.write("test_ground_truth_out.wav", fs_aud, audio)
     ax_gt.imshow(np.flip(piano_roll_gt_full, axis=0))
 
+    ## Generate Neural Activity Patterns 
+    # Periphery Parameters
+    x_lo = 0.05  # 45 Hz
+    x_hi = 0.75  # 6050 Hz 
+    num_channels = 72
+    print("Generating NAP...")
+    nap, channel_cfs = pyc.carfac_nap(audio,
+                                      float(fs_aud),
+                                      num_sections=num_channels,
+                                      x_lo=x_lo,
+                                      x_hi=x_hi,
+                                      b=0.5)
+    print("Finished.")
+
+    ## Generate auto-correlated frames
+    win_size_n = 2048
+    len_sig_n = len(audio)
+    len_frame_n = len_sig_n/seq_len
+    num_frames = int(len_sig_n/len_frame_n)
+    c_times_n = np.arange(0,num_frames)*len_frame_n+int(len_frame_n//2)
+    c_times_t = c_times_n/fs_aud
+    win_size_t = win_size_n/fs_aud
+    print("Calculating frame data...")
+    sac_frames = datagen.gen_nap_sac_frames(nap, float(fs_aud), c_times_t, win_size_t)
+    print("Finished.")
+    assert len(sac_frames) == seq_len
+
+
+    ## Plot some sample frames
+    # fig = plt.figure()
+    # idcs = np.random.randint(seq_len,size=10)
+    # for k in range(10):
+    #     ax = fig.add_subplot(2,5,k+1)
+    #     ax.plot(sac_frames[k])
+    # plt.show()
+
+
+
+
+
     ## Generate Observation Probability Distributions for each step
-    # win_size = int(len(audio)/piano_roll_gt.shape[0])
-    # sig_len = len(audio)
+    def midi_probs_from_signal_dnn(ac_frame, fs, MIDI_lo, MIDI_hi, net, ac_size=1024):
+        assert len(ac_frame) == ac_size
+        obs_probs = torch.zeros((2, MIDI_hi-MIDI_lo+1))
+        # take the signal-section from middle of frame
+        outputs = net(torch.unsqueeze(torch.tensor(ac_frame, requires_grad=False),0).float())
+        sig = nn.Sigmoid()
+        outputs = sig(outputs)
+        obs_probs[1,:] = outputs[0].detach()    # re-squeeze
+        obs_probs[0,:] = 1.0 - obs_probs[1,:]
+        return obs_probs
+        
+    ## obs_probs for  dnn front-end
+    win_size = int(len(audio)/piano_roll_gt.shape[0])
+    sig_len = len(audio)
     num_hops = piano_roll_gt.shape[0] 
-    # obs_probs = torch.zeros((num_hops, 2, num_notes))
-    # for k in range(num_hops):
-    #     start_idx = int(k*len(audio)/num_hops)
-    #     obs_probs[k,1,:] = torch.from_numpy(
-    #                             pp.midi_probs_from_signal(
-    #                                 audio[start_idx:start_idx+win_size], fs_aud,
-    #                                 MIDI_lo, MIDI_hi
-    #                                 )
-    #                             )
-    #     obs_probs[k,0,:] = 1. - obs_probs[k,1,:]
+    assert num_hops == sac_frames.shape[0]
+    obs_probs = torch.zeros((num_hops, 2, num_notes), requires_grad=False)
+    dnn_ests  = torch.zeros((num_hops, num_notes), requires_grad=False)
+    for k in range(num_hops):
+        obs_probs[k,:,:] = midi_probs_from_signal_dnn(sac_frames[k], 
+                                               fs_aud,
+                                               MIDI_lo, 
+                                               MIDI_hi, 
+                                               net, 
+                                               ac_size=1024)
+        dnn_ests[k] = torch.where(obs_probs[k,1,:] > 0.5, 
+                               torch.ones_like(obs_probs[k,1,:]), 
+                               torch.zeros_like(obs_probs[k,1,:]))
+
+    ## Plot some sample front-end outputs
+    # fig = plt.figure()
+    # idcs = np.random.randint(seq_len, size=10)
+    # for k in range(10):
+    #     ax = fig.add_subplot(2,5,k+1)
+    #     ax.plot(obs_probs[idcs[k],1,:].numpy())
+    #     ax.plot(piano_roll_gt[idcs[k]])
+    # plt.show()
 
     # TEST: calculate the probability of the first notes
     piano_roll_gt = torch.from_numpy(piano_roll_gt).type(torch.long)
@@ -272,12 +343,15 @@ def main(args):
     count = 0
 
     ## Calculate initial weights
-    ## Using primative AC model
+    for p in range(num_particles):
+        prob = calc_obs_probs(obs_probs[0,:,:], x[0,p,:])
+        w[0,p] *= prob
+    ## Using DNN
     # for p in range(num_particles):
-    #     prob = calc_obs_probs(obs_probs[0,:,:], x[0,p,:])
+    #     prob = calc_obs_probs(obs_probs[1,:], x[0,:])
     #     w[0,p] *= prob
     ## Uniform
-    w[0,:] = 1.0/w.shape[1]
+    # w[0,:] = 1.0/w.shape[1]
     # def get_probs_from_dnn()
 
     # for p in range(num_particles):
@@ -292,8 +366,11 @@ def main(args):
     # print("Initial normalized weights: \n", w[0,:])
 
     # Start main loop
+    piano_roll_gt_f = torch.tensor(piano_roll_gt, dtype=torch.double) # warning
     for f in range(1, num_hops):
-        print("Starting on frame {}... ".format(f), end="")
+        # print("Starting on frame {}... ".format(f), end="")
+        # print("GT      :\n", piano_roll_gt_f[f])
+        # print("DNN Est :\n", dnn_ests[k])
 
         # Sample new particles
         z_vals, z_probs = particles_to_dist(z, w[f-1])
@@ -308,14 +385,12 @@ def main(args):
          
         # Calculate Weights -- probably bring this into loop above
         for p in range(num_particles):
-            ## Using ultra naive AC model
-            # prob = calc_obs_probs(obs_probs[f,:,:], x[f,p,:])
+            ## 
+            prob = calc_obs_probs(obs_probs[f,:,:], x[f,p,:])
 
             ## Primitive observation-free model (more notes correct, higher prop)
-            num_same = torch.sum(x[f,p,:].type(torch.long) == piano_roll_gt[f]).item() 
-            prob = ((num_same-78)/10)**2
-
-            ## Using the DNN frontend to determine probabilities -- will need to vectorize
+            # num_same = torch.sum(x[f,p,:].type(torch.long) == piano_roll_gt[f]).item() 
+            # prob = ((num_same-78)/10)**2
 
             w[f,p] *= prob
 
@@ -335,9 +410,9 @@ def main(args):
     piano_roll_estimated_full[20:108,:] += piano_roll_estimated.transpose().astype(int)
     piano_roll_estimated_full *= 64
     pm = piano_roll_to_pretty_midi(piano_roll_estimated_full.astype(float), fs=2, program=52)
-    audio = pm.fluidsynth(fs=16000,
+    audio = pm.fluidsynth(fs=fs_aud,
                           sf2_path='/usr/share/soundfonts/FluidR3_GM.sf2')
-    wav.write("test_estimated_out.wav", 16000, audio)
+    wav.write("test_estimated_out.wav", fs_aud, audio)
     ax_estimated.imshow(np.flip(piano_roll_estimated_full, axis=0))
 
     # Sample a random sequence starting at the same initial latent state 
@@ -357,9 +432,9 @@ def main(args):
     piano_roll_sampled_full[20:108,:] += piano_roll_sampled.transpose().astype(int)
     piano_roll_sampled_full *= 64
     pm = piano_roll_to_pretty_midi(piano_roll_sampled_full.astype(float), fs=1, program=52)
-    audio = pm.fluidsynth(fs=16000,
+    audio = pm.fluidsynth(fs=fs_aud,
                           sf2_path='/usr/share/soundfonts/FluidR3_GM.sf2')
-    wav.write("test_sampled_out.wav", 16000, audio)
+    wav.write("test_sampled_out.wav", fs_aud, audio)
     ax_sampled.imshow(np.flip(piano_roll_sampled_full, axis=0))
 
     plt.show()

@@ -168,77 +168,78 @@ win_size_n = 2048   # size of window for ac -- centered in frame
 ################################################################################
 # Main Script
 ################################################################################
-# Load data
-data = poly.load_data(poly.JSB_CHORALES)
-data_categories = ['train', 'test', 'valid']
+if __name__=="__main__":
+    # Load data
+    data = poly.load_data(poly.JSB_CHORALES)
+    data_categories = ['train', 'test', 'valid']
 
-# Set up the different data sets (training, validation, testing) so they can be
-# iterated over
-data_seqs = {} 
-seq_lengths = {} 
-for category in data_categories:
-    data_seqs[category] = data[category]['sequences']
-    seq_lengths[category] = data[category]['sequence_lengths']
+    # Set up the different data sets (training, validation, testing) so they can be
+    # iterated over
+    data_seqs = {} 
+    seq_lengths = {} 
+    for category in data_categories:
+        data_seqs[category] = data[category]['sequences']
+        seq_lengths[category] = data[category]['sequence_lengths']
 
-## Generate training data
-for category in data_categories:
-    y_vals = np.zeros((0,num_pitches))
-    x_vals = np.zeros((0,int(win_size_n//2)), dtype=np.float32)
-    seq_length = seq_lengths[category]
-    data_seq   = data_seqs[category]
-    # seq_length = seq_length[:10]
-    # data_seq   = data_seq[:10]
-    num_sequences = data_seq.shape[0]
-    for k in range(num_sequences):
-        print("________________________________________________________________________________")
-        print("Started Chorale {} of {} for category {}".format(k+1,
-                                                                num_sequences, 
-                                                                category))
-        print("________________________________________________________________________________")
+    ## Generate training data
+    for category in data_categories:
+        y_vals = np.zeros((0,num_pitches))
+        x_vals = np.zeros((0,int(win_size_n//2)), dtype=np.float32)
+        seq_length = seq_lengths[category]
+        data_seq   = data_seqs[category]
+        # seq_length = seq_length[:10]
+        # data_seq   = data_seq[:10]
+        num_sequences = data_seq.shape[0]
+        for k in range(num_sequences):
+            print("________________________________________________________________________________")
+            print("Started Chorale {} of {} for category {}".format(k+1,
+                                                                    num_sequences, 
+                                                                    category))
+            print("________________________________________________________________________________")
 
-        # Generate MIDI data from piano roll
-        seq_len = seq_length[k].item()
-        piano_roll = data_seq[k,:seq_len,:].data.numpy()
-        piano_roll_full = np.zeros((128,seq_len))
-        piano_roll_full[MIDI_lo:MIDI_hi+1,:] += piano_roll.transpose().astype(int)
-        piano_roll_full *= 64   # make nonzero
-        pm = piano_roll_to_pretty_midi(piano_roll_full.astype(float),
-                fs=fs_midi, program=program)
+            # Generate MIDI data from piano roll
+            seq_len = seq_length[k].item()
+            piano_roll = data_seq[k,:seq_len,:].data.numpy()
+            piano_roll_full = np.zeros((128,seq_len))
+            piano_roll_full[MIDI_lo:MIDI_hi+1,:] += piano_roll.transpose().astype(int)
+            piano_roll_full *= 64   # make nonzero
+            pm = piano_roll_to_pretty_midi(piano_roll_full.astype(float),
+                    fs=fs_midi, program=program)
 
-        # Generate Audio from MIDI
-        audio = pm.fluidsynth(fs=fs_aud,
-                              sf2_path='/usr/share/soundfonts/FluidR3_GM.sf2')
-        
-        # Generate Neural Activity Pattern (nap) from audio 
-        print("Calculating CARFAC NAP...")
-        nap, channel_cfs = pyc.carfac_nap(audio,
-                                          float(fs_aud),
-                                          num_sections=num_channels,
-                                          x_lo=x_lo,
-                                          x_hi=x_hi,
-                                          b=0.5)
-        print("Finished.")
+            # Generate Audio from MIDI
+            audio = pm.fluidsynth(fs=fs_aud,
+                                  sf2_path='/usr/share/soundfonts/FluidR3_GM.sf2')
+            
+            # Generate Neural Activity Pattern (nap) from audio 
+            print("Calculating CARFAC NAP...")
+            nap, channel_cfs = pyc.carfac_nap(audio,
+                                              float(fs_aud),
+                                              num_sections=num_channels,
+                                              x_lo=x_lo,
+                                              x_hi=x_hi,
+                                              b=0.5)
+            print("Finished.")
 
-        # Generate frames from synthensized audio
-        len_sig_n = len(audio)
-        len_frame_n = len_sig_n/seq_len
-        num_frames = int(len_sig_n/len_frame_n)
-        c_times_n = np.arange(0,num_frames)*len_frame_n+int(len_frame_n//2)
-        c_times_t = c_times_n/fs_aud
-        win_size_t = win_size_n/fs_aud
-        print("Calculating frame data...")
-        x = gen_nap_sac_frames(nap, fs_aud, c_times_t, win_size_t)
-        print("Finished.")
-        assert len(x) == seq_len
-        
-        x = np.array(x, dtype=np.float32)
-        x_vals = np.concatenate([x_vals, x])
-        y_vals = np.concatenate([y_vals, piano_roll])
+            # Generate frames from synthensized audio
+            len_sig_n = len(audio)
+            len_frame_n = len_sig_n/seq_len
+            num_frames = int(len_sig_n/len_frame_n)
+            c_times_n = np.arange(0,num_frames)*len_frame_n+int(len_frame_n//2)
+            c_times_t = c_times_n/fs_aud
+            win_size_t = win_size_n/fs_aud
+            print("Calculating frame data...")
+            x = gen_nap_sac_frames(nap, fs_aud, c_times_t, win_size_t)
+            print("Finished.")
+            assert len(x) == seq_len
+            
+            x = np.array(x, dtype=np.float32)
+            x_vals = np.concatenate([x_vals, x])
+            y_vals = np.concatenate([y_vals, piano_roll])
 
-    # Write resulting data
-    print("Writing results to disk...")
-    f_name = "poly_synth_data_{}".format(category) + ".bin"
-    with open(f_name, "wb") as f:
-        pickle.dump((y_vals, x_vals), f)
-    print("Finished!")
+        # Write resulting data
+        print("Writing results to disk...")
+        f_name = "poly_synth_data_{}".format(category) + ".bin"
+        with open(f_name, "wb") as f:
+            pickle.dump((y_vals, x_vals), f)
+        print("Finished!")
 

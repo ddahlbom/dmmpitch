@@ -89,7 +89,7 @@ def signal_to_ac(signal, fs, half=False, mode='same'):
     return ac, tau
 
 
-def midi_probs_from_signal(signal, fs, MIDI_lo, MIDI_hi):
+def midi_probs_from_signal_ac(signal, fs, MIDI_lo, MIDI_hi):
     ac, tau_vals = signal_to_ac(signal, fs, half=True)
     MIDI_delays = MIDI_tau[MIDI_lo:MIDI_hi+1]
     saliencies = np.zeros_like(MIDI_delays)

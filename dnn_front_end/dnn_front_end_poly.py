@@ -61,6 +61,7 @@ class Renorm(object):
 
     def __call__(self, sample):
         image, notes = sample['image'], sample['notes']
+        image /= np.max(image)
         # image /= 0.5*np.max(image)  #normalize between 0 and 1
         # image -= 1    # center at 0
         return {'image': image, 'notes': notes}
@@ -104,9 +105,12 @@ class Net(nn.Module):
 
     def forward(self, x):
         x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
+        # x = F.relu(self.fc2(x))
+        x = self.dropout(x)
         x = F.relu(self.fc3(x))
+        x = self.dropout(x)
         x = F.relu(self.fc4(x))
+        x = self.dropout(x)
         x = self.fc5(x)
         return x
 
@@ -116,14 +120,14 @@ class Net(nn.Module):
 ################################################################################
 if __name__=="__main__":
     ## Run parameters
-    TRAIN = False
+    TRAIN = True
     TEST = True
     file_prefix_train = "poly_synth_data_train"
     file_prefix_test = "poly_synth_data_test"
     # file_path   = "C:/Users/Beranek/Documents/dahlbom/dmm_pitch/data_gen/"
     file_path = os.path.join(cur_dir + "/../data_gen/")
     # file_path   = str(project_directory / 'data_gen')
-    save_prefix = "dnn_frontend_poly"
+    save_prefix = "dnn_frontend_poly_temp"
     # save_path   = "C:/Users/Beranek/Documents/dahlbom/dmm_pitch/dnn_front_end/saved_models/"
     # save_path   = str(project_directory / 'dnn_front_end' / 'saved_models/')
     save_path = os.path.join(cur_dir + "/../dnn_front_end/saved_models/")
@@ -148,7 +152,8 @@ if __name__=="__main__":
         print("Loading and transforming data...")
         bach_dataset = auditoryDataset(file_path,
                                        file_prefix_train,
-                                       transform=transforms.Compose([ToTensor()]))
+                                       transform=transforms.Compose([ Renorm(),
+                                                                     ToTensor()]))
         print("Making data loader...")
         trainloader = DataLoader(bach_dataset,
                                  batch_size=batch_size,
@@ -195,13 +200,15 @@ if __name__=="__main__":
         print("Loading and transforming test data...")
         bach_dataset = auditoryDataset(file_path,
                                        file_prefix_test,
-                                       transform=transforms.Compose([ToTensor()]))
+                                       transform=transforms.Compose([Renorm(),
+                                                                     ToTensor()]))
         print("Making data loader for test data...")
         testloader = DataLoader(bach_dataset,
                                  batch_size=batch_size,
                                  shuffle=True,
                                  num_workers=num_workers)
         with torch.no_grad():
+            sig = nn.Sigmoid()
             num_detected = 0
             num_in_gt = 0
             correctly_detected = 0
@@ -209,6 +216,7 @@ if __name__=="__main__":
                 inputs, labels = data['image'], data['notes']
                 inputs, labels = inputs.to(device), labels.to(device)
                 outputs = net(inputs)
+                outputs = sig(outputs)
                 note_est = torch.where(outputs > 0.5, 
                                        torch.ones_like(outputs), 
                                        torch.zeros_like(outputs))
@@ -219,8 +227,8 @@ if __name__=="__main__":
                                                     torch.zeros_like(note_est)
                                                     ) * note_est).item()
                 num_in_gt += torch.sum(labels).item()
-            precision = correctly_detected/num_detected
-            recall = correctly_detected/num_in_gt
+            precision = correctly_detected/max([1,num_detected])
+            recall = correctly_detected/max([1,num_in_gt])
             f_metric = 2.0/((1.0/precision) + (1.0/recall))
             print("Precision: {}".format(precision))
             print("Recall:    {}".format(recall))
