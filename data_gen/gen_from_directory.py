@@ -11,6 +11,7 @@ sys.path.insert(0, '/home/dahlbom/research/ccarfac')
 import pycarfac as pyc
 import scipy.io.wavfile as wav 
 
+
 ################################################################################
 # Animation Utilities
 ################################################################################
@@ -18,6 +19,7 @@ class MyNormalize(mcolors.Normalize):
     def __call__(self, value, clip=None):
         f = lambda x,a: (2*x)**a*(2*x<1)/2. +(2-(2*(1-1*x))**a)*(2*x>=1)/2.
         return np.ma.masked_array(f(value,0.5))
+
 
 # def gen_nap_frames(nap, fs_aud, fs_sym
 def gen_nap_frames(nap, fs_aud, times, frame_size_t):
@@ -31,6 +33,7 @@ def gen_nap_frames(nap, fs_aud, times, frame_size_t):
     for k, idx in enumerate(c_indices):
         frames[k,:,:] = nap[:,(idx-pad_lower):(idx+pad_upper)]
     return frames
+
 
 def gen_nap_ac_frames(nap, fs_aud, times, frame_size_t):
     nap_len_n = len(nap)
@@ -46,8 +49,6 @@ def gen_nap_ac_frames(nap, fs_aud, times, frame_size_t):
                                          nap[c,(idx-pad_lower):(idx+pad_upper)],
                                          mode='same')
     return frames
-
-
 
 
 def animate_SAI(I, fs, times, colormap = cm.binary, adv_time = 50):
@@ -84,6 +85,7 @@ def animate_SAI(I, fs, times, colormap = cm.binary, adv_time = 50):
     # Let 'er rip
     anim = FuncAnimation(fig, update, frames=range(1,num_frames), interval=adv_time, repeat=True)
     plt.show()
+
 
 ################################################################################
 # Other utility Functions
@@ -255,6 +257,3 @@ if (k+1) % 10 != 0:
     with open(f_name, "wb") as f:
         pickle.dump((y_vals, x_vals), f)
     print("Finished writing.\n")
-
-
-

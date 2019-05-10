@@ -76,6 +76,7 @@ class MyNormalize(mcolors.Normalize):
         f = lambda x,a: (2*x)**a*(2*x<1)/2. +(2-(2*(1-1*x))**a)*(2*x>=1)/2.
         return np.ma.masked_array(f(value,0.5))
 
+
 # def gen_nap_frames(nap, fs_aud, fs_sym
 def gen_nap_frames(nap, fs_aud, times, frame_size_t):
     nap_len_n = len(nap)
@@ -88,6 +89,7 @@ def gen_nap_frames(nap, fs_aud, times, frame_size_t):
     for k, idx in enumerate(c_indices):
         frames[k,:,:] = nap[:,(idx-pad_lower):(idx+pad_upper)]
     return frames
+
 
 def gen_nap_ac_frames(nap, fs_aud, times, frame_size_t):
     nap_len_n = len(nap)
@@ -105,7 +107,7 @@ def gen_nap_ac_frames(nap, fs_aud, times, frame_size_t):
     return frames
 
 
-def gen_nap_sac_frames(nap, fs_aud, times, frame_size_t):
+def gen_nap_sac_frames(nap, fs_aud, times, frame_size_t, normalize=True):
     # Like above, but returns a summary-AC -- i.e. all channels summed
     nap_len_n = len(nap)
     frame_size_n = int(fs_aud*frame_size_t)
@@ -119,8 +121,11 @@ def gen_nap_sac_frames(nap, fs_aud, times, frame_size_t):
             frames[k,c,:] = np.correlate(nap[c,(idx-pad_lower):(idx+pad_upper)],
                                          nap[c,(idx-pad_lower):(idx+pad_upper)],
                                          mode='same')
-    frames = np.sum(frames, axis=1)
-    return frames[:,int(frame_size_n//2):]
+    # Make summary AC and keep only positive delays -- reverse sum and indexing!
+    frames = np.sum(frames, axis=1)[:,int(frame_size_n//2):]
+    if normalize:
+        frames /= np.max(frames, axis=1)[:,np.newaxis]
+    return frames 
 
 
 ################################################################################

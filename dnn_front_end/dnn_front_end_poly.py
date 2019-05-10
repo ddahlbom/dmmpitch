@@ -86,7 +86,7 @@ class Net(nn.Module):
     def calc_dim_output(img_dim, filt_dim, stride, pad_dim):
         return (img_dim - filt_dim + 2*pad_dim)/stride + 1
 
-    def __init__(self, ac_length=600, drop_p=0.0):
+    def __init__(self, ac_length=600, drop_p=0.5):
         super(Net, self).__init__()
         # Standard linear layers
         self.fc1 = nn.Linear(ac_length, 1024)
@@ -120,7 +120,7 @@ class Net(nn.Module):
 ################################################################################
 if __name__=="__main__":
     ## Run parameters
-    TRAIN = True
+    TRAIN = False
     TEST = True
     file_prefix_train = "poly_synth_data_train"
     file_prefix_test = "poly_synth_data_test"
@@ -193,6 +193,7 @@ if __name__=="__main__":
     # Now test the accuracy of the results
     if TEST:
         # Load model
+        # save_prefix = "dnn_frontend_poly"
         net.load_state_dict(torch.load(save_path + save_prefix + ".pt"))
         net.eval()
 
@@ -246,8 +247,8 @@ if __name__=="__main__":
         output = sig(output)
         output = output.to('cpu')
         ax = fig.add_subplot(3,7,k+1) 
-        ax.plot(output[0].detach().numpy())
-        ax.plot(target.numpy())
+        ax.plot(target.numpy(), color='C1')
+        ax.plot(output[0].detach().numpy(), color='C0')
         ax.set_ylim([0,1.1])
     plt.show()
     
