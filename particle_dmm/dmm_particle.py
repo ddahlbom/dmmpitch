@@ -315,7 +315,7 @@ def main(args):
     ## Load the front-end model
     net = dnn.Net(ac_length=1024)
     net.eval()
-    save_prefix = "dnn_frontend_poly_temp"
+    save_prefix = "dnn_frontend_poly_test"
     save_path   = project_directory + "dnn_front_end/saved_models/"
     net.load_state_dict(torch.load(save_path + save_prefix + ".pt"))
     
@@ -397,8 +397,8 @@ def main(args):
                                                MIDI_hi, 
                                                net, 
                                                ac_size=1024,
-                                               compression_factor=0.5,
-                                               offset = 0.3)
+                                               compression_factor=0.6,
+                                               offset = 0.2)
         # dnn_ests[k] = torch.where(obs_probs[k,1,:] > 0.25, 
         #                        torch.ones_like(obs_probs[k,1,:]), 
         #                        torch.zeros_like(obs_probs[k,1,:]))
@@ -421,7 +421,7 @@ def main(args):
 
     # Particle Filtering Parameters
     # num_particles = 10000     # worked!
-    num_particles = 1000
+    num_particles = 2500
     z_dim = 100
     x_dim = 88
     z = torch.ones((num_particles, z_dim), requires_grad=False)
@@ -484,7 +484,7 @@ def main(args):
         count = 0
 
         ## Normalize
-        # w[f,:] = w[f,:].pow(0.4)
+        w[f,:] = w[f,:].pow(0.4)
         w[f,:] = normalize_weights(w[f,:])
         w_naive[f,:] = normalize_weights(w_naive[f,:])
         # plt.plot(w[f,:].numpy())

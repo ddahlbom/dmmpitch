@@ -120,14 +120,14 @@ class Net(nn.Module):
 ################################################################################
 if __name__=="__main__":
     ## Run parameters
-    TRAIN = False
+    TRAIN = True
     TEST = True
     file_prefix_train = "poly_synth_data_train"
     file_prefix_test = "poly_synth_data_test"
     # file_path   = "C:/Users/Beranek/Documents/dahlbom/dmm_pitch/data_gen/"
     file_path = os.path.join(cur_dir + "/../data_gen/")
     # file_path   = str(project_directory / 'data_gen')
-    save_prefix = "dnn_frontend_poly_temp"
+    save_prefix = "dnn_frontend_poly_test"
     # save_path   = "C:/Users/Beranek/Documents/dahlbom/dmm_pitch/dnn_front_end/saved_models/"
     # save_path   = str(project_directory / 'dnn_front_end' / 'saved_models/')
     save_path = os.path.join(cur_dir + "/../dnn_front_end/saved_models/")

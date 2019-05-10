@@ -227,15 +227,24 @@ if __name__=="__main__":
 
             # Generate frames from synthensized audio
             len_sig_n = len(audio)
-            len_frame_n = len_sig_n/seq_len
-            num_frames = int(len_sig_n/len_frame_n)
+            len_frame_n = len_sig_n/(seq_len+2)     # correct for PM's padding
+            # num_frames = int(len_sig_n/len_frame_n)
+            num_frames = seq_len
             c_times_n = np.arange(0,num_frames)*len_frame_n+int(len_frame_n//2)
             c_times_t = c_times_n/fs_aud
+            s_times_n = np.arange(0,num_frames)*len_frame_n
+            s_times_t = s_times_n/fs_aud
             win_size_t = win_size_n/fs_aud
             print("Calculating frame data...")
             x = gen_nap_sac_frames(nap, fs_aud, c_times_t, win_size_t)
             print("Finished.")
             assert len(x) == seq_len
+            # plt.figure()
+            # plt.specgram(audio, NFFT=1024, Fs=fs_aud, noverlap=900)
+            # for s_time,c_time in zip(s_times_t, c_times_t):
+            #     plt.plot([s_time,s_time],[0,6000], color='C3', linewidth=0.8,
+            #             linestyle='--')
+            # plt.show()
             
             x = np.array(x, dtype=np.float32)
             x_vals = np.concatenate([x_vals, x])
