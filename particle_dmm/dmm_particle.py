@@ -182,7 +182,7 @@ def midi_probs_nap_klap(frame, fs, win_n, MIDI_lo=21, MIDI_hi=108):
     half_win_n = int(win_n//2)
     mid_n = int(frame_len//2)
     U = klap.calc_U_from_nap(frame[:,mid_n - half_win_n: mid_n + half_win_n], fs)
-    saliences = klap.salience(U, fs, f_eval, win_n)
+    saliences = klap.salience(U, fs, f_eval, win_n, b=-.02)
     obs_probs = torch.zeros((2, MIDI_hi-MIDI_lo+1))
     obs_probs[1,:] = torch.tensor(saliences)
     obs_probs[0,:] = 1.0 - obs_probs[1,:] 
@@ -358,12 +358,13 @@ def main(args):
 
 
     ## Generate auto-correlated frames
-    win_size_n = 2048
     len_sig_n = len(audio)
-    len_frame_n = len_sig_n/seq_len
-    num_frames = int(len_sig_n/len_frame_n)
+    len_frame_n = len_sig_n/(seq_len+2)     # to account of PM's padding
+    # num_frames = int(len_sig_n/len_frame_n)
+    num_frames = seq_len
     c_times_n = np.arange(0,num_frames)*len_frame_n+int(len_frame_n//2)
     c_times_t = c_times_n/fs_aud
+    win_size_n = 2048   # analysis window size
     win_size_t = win_size_n/fs_aud
     print("Calculating frame data...")
     sac_frames = datagen.gen_nap_sac_frames(nap, float(fs_aud), c_times_t,
@@ -386,17 +387,18 @@ def main(args):
     num_hops = piano_roll_gt.shape[0] 
     assert num_hops == sac_frames.shape[0]
     obs_probs = torch.zeros((num_hops, 2, num_notes), requires_grad=False)
+    obs_probs_dnn = torch.zeros((num_hops, 2, num_notes), requires_grad=False)
     dnn_ests  = torch.zeros((num_hops, num_notes), requires_grad=False)
     for k in range(num_hops):
-        obs_probs[k,:,:] = midi_probs_nap_klap(frames[k], fs_aud, 1024)
-        # obs_probs[k,:,:] = midi_probs_from_signal_dnn(sac_frames[k], 
-        #                                        fs_aud,
-        #                                        MIDI_lo, 
-        #                                        MIDI_hi, 
-        #                                        net, 
-        #                                        ac_size=1024,
-        #                                        compression_factor=0.5,
-        #                                        offset = 0.3)
+        # obs_probs[k,:,:] = midi_probs_nap_klap(frames[k], fs_aud, 1024)
+        obs_probs[k,:,:] = midi_probs_from_signal_dnn(sac_frames[k], 
+                                               fs_aud,
+                                               MIDI_lo, 
+                                               MIDI_hi, 
+                                               net, 
+                                               ac_size=1024,
+                                               compression_factor=0.5,
+                                               offset = 0.3)
         # dnn_ests[k] = torch.where(obs_probs[k,1,:] > 0.25, 
         #                        torch.ones_like(obs_probs[k,1,:]), 
         #                        torch.zeros_like(obs_probs[k,1,:]))
@@ -404,11 +406,15 @@ def main(args):
     ## Plot some sample front-end outputs
     fig = plt.figure()
     idcs = np.random.randint(seq_len, size=10)
-    for k in range(10):
-        ax = fig.add_subplot(2,5,k+1)
-        ax.plot(obs_probs[idcs[k],1,:].numpy())
-        ax.plot(piano_roll_gt[idcs[k]])
-    plt.show()
+    # for k in range(10):
+    #     ax = fig.add_subplot(2,5,k+1)
+    #     ax.plot(obs_probs[idcs[k],1,:].numpy())
+    #     ax.plot(obs_probs_dnn[idcs[k],1,:].numpy())
+    #     ax.set_title("{}".format(idcs[k]))
+    #     for q in range(piano_roll_gt.shape[1]):
+    #         if piano_roll_gt[idcs[k],q] == 1:
+    #             ax.plot([q, q], [0,1.0], color='C3')
+    # plt.show()
 
     # TEST: calculate the probability of the first notes
     piano_roll_gt = torch.from_numpy(piano_roll_gt).type(torch.long)

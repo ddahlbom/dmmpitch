@@ -71,12 +71,13 @@ def salience(U, fs, f_eval, win_n, b=-0.02):
             j += 1
 
     # normalize
+    saliences = (1 + b*np.log(fs*f_eval))*saliences
+
     #scale = np.sum(saliences)
-    scale = np.max(saliences)
-    saliences /= scale
+    scale = np.max(saliences)*1.1
 
     # now balance and return
-    return (1 + b*np.log(fs*f_eval))*saliences
+    return saliences/scale
 
 ################################################################################
 # 
