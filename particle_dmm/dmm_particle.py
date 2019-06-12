@@ -175,14 +175,14 @@ def midi_probs_from_signal_dnn(ac_frame, fs, MIDI_lo, MIDI_hi, net,
     return obs_probs
 
 ## Generate observation probabilities from Klapuri model
-def midi_probs_nap_klap(frame, fs, win_n, MIDI_lo=21, MIDI_hi=108):
+def midi_probs_nap_klap(frame, fs, win_n, MIDI_lo=21, MIDI_hi=108, b=-0.4):
     f_eval = np.array([27.5 * (2**(k/12)) for k in range(MIDI_lo-21,MIDI_hi-21+1)])
     frame_len = frame.shape[1]
     assert frame_len >= win_n, "Frame too small for specified window!"
     half_win_n = int(win_n//2)
     mid_n = int(frame_len//2)
     U = klap.calc_U_from_nap(frame[:,mid_n - half_win_n: mid_n + half_win_n], fs)
-    saliences = klap.salience(U, fs, f_eval, win_n, b=-.02)
+    saliences = klap.salience(U, fs, f_eval, win_n, b=b)
     obs_probs = torch.zeros((2, MIDI_hi-MIDI_lo+1))
     obs_probs[1,:] = torch.tensor(saliences)
     obs_probs[0,:] = 1.0 - obs_probs[1,:] 
@@ -301,10 +301,10 @@ def main(args):
     ## Basic parameters
     fs_aud = 12000  # sampling rate for audio rendering
     fig = plt.figure()
-    ax_gt          = fig.add_subplot(2,2,1)
-    ax_estimated   = fig.add_subplot(2,2,3)
-    ax_estimated_c = fig.add_subplot(2,2,4)
-    ax_dist        = fig.add_subplot(2,2,2)
+    ax_gt          = fig.add_subplot(1,2,1)
+    ax_estimated   = fig.add_subplot(1,2,2)
+    # ax_estimated_c = fig.add_subplot(2,2,4)
+    # ax_dist        = fig.add_subplot(2,2,2)
     MIDI_lo = 21
     MIDI_hi = 21 + 87
     # MIDI_lo_p = 
@@ -340,7 +340,10 @@ def main(args):
                               sf2_path='/usr/share/soundfonts/FluidR3_GM.sf2')
     print("done.")
     wav.write("test_ground_truth_out.wav", fs_aud, audio)
-    ax_gt.imshow(np.transpose(piano_roll_gt))
+    ax_gt.imshow(np.flip(np.transpose(piano_roll_gt), axis=0))
+    ax_gt.set_yticks(np.arange(1,89)[::10])
+    ax_gt.set_yticklabels(np.arange(88,0,-1)[::10])
+    # plt.show()
 
     ## Generate Neural Activity Patterns 
     # Periphery Parameters
@@ -390,22 +393,22 @@ def main(args):
     obs_probs_dnn = torch.zeros((num_hops, 2, num_notes), requires_grad=False)
     dnn_ests  = torch.zeros((num_hops, num_notes), requires_grad=False)
     for k in range(num_hops):
-        # obs_probs[k,:,:] = midi_probs_nap_klap(frames[k], fs_aud, 1024)
+        # obs_probs[k,:,:] = midi_probs_nap_klap(frames[k], fs_aud, 1024, b=0.01)
         obs_probs[k,:,:] = midi_probs_from_signal_dnn(sac_frames[k], 
                                                fs_aud,
                                                MIDI_lo, 
                                                MIDI_hi, 
                                                net, 
                                                ac_size=1024,
-                                               compression_factor=0.6,
-                                               offset = 0.2)
+                                               compression_factor=0.825,
+                                               offset = 0.05)
         # dnn_ests[k] = torch.where(obs_probs[k,1,:] > 0.25, 
         #                        torch.ones_like(obs_probs[k,1,:]), 
         #                        torch.zeros_like(obs_probs[k,1,:]))
 
     ## Plot some sample front-end outputs
-    fig = plt.figure()
-    idcs = np.random.randint(seq_len, size=10)
+    # fig = plt.figure()
+    # idcs = np.random.randint(seq_len, size=10)
     # for k in range(10):
     #     ax = fig.add_subplot(2,5,k+1)
     #     ax.plot(obs_probs[idcs[k],1,:].numpy())
@@ -421,7 +424,7 @@ def main(args):
 
     # Particle Filtering Parameters
     # num_particles = 10000     # worked!
-    num_particles = 2500
+    num_particles = 500 
     z_dim = 100
     x_dim = 88
     z = torch.ones((num_particles, z_dim), requires_grad=False)
@@ -484,7 +487,7 @@ def main(args):
         count = 0
 
         ## Normalize
-        w[f,:] = w[f,:].pow(0.4)
+        w[f,:] = w[f,:].pow(0.25)
         w[f,:] = normalize_weights(w[f,:])
         w_naive[f,:] = normalize_weights(w_naive[f,:])
         # plt.plot(w[f,:].numpy())
@@ -503,11 +506,11 @@ def main(args):
             w_condensed, x_condensed = make_final_dist(w[f,:], x[f,:,:])
             w_c.append(w_condensed)
             x_c.append(x_condensed)
-            # print("{} unique samples in step {}/{}".format(len(w_condensed), f+1,
-            #     num_hops))
+            print("{} unique samples in step {}/{}".format(len(w_condensed), f+1,
+                num_hops))
             piano_roll_dist[f,:] = np.sum(x_condensed*w_condensed[:,np.newaxis],
                     axis=0)
-        ax_dist.imshow(np.transpose(piano_roll_dist))
+        ax_dist.imshow(np.flip(np.transpose(piano_roll_dist), axis=0))
 
     ## Most probable path by picking highest weighted particle
     piano_roll_estimated = np.zeros((num_hops, 88))
@@ -520,9 +523,12 @@ def main(args):
         if condense:
             idx = np.argmax(w_c[f])
             piano_roll_estimated_c[f,:] = x_c[f][idx,:]
-    ax_estimated.imshow(np.transpose(piano_roll_estimated))
+    ax_estimated.imshow(np.flip(np.transpose(piano_roll_estimated), axis=0))
+    ax_estimated.set_yticks(np.arange(1,89)[::10])
+    ax_estimated.set_yticklabels(np.arange(88,0,-1)[::10])
     if condense:
-        ax_estimated_c.imshow(np.transpose(piano_roll_estimated_c))
+        ax_estimated_c.imshow(np.flip(np.transpose(piano_roll_estimated_c),
+            axis=0))
 
     ## Calculate and report precision and recall
     p, r, f = precision_recall_f(piano_roll_gt.numpy(), piano_roll_estimated)
@@ -585,8 +591,8 @@ def main(args):
     #                           sf2_path='/usr/share/soundfonts/FluidR3_GM.sf2')
     # print('done.')
     # wav.write("test_sampled_out.wav", fs_aud, audio)
-    # ax_sampled.imshow(np.transpose(piano_roll_sampled))
-    plt.tight_layout()
+    # ax_sampled.imshow(np.flip(np.transpose(piano_roll_sampled), axis=0))
+    # plt.tight_layout()
     plt.show()
 
 

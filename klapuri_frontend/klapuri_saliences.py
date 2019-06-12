@@ -49,6 +49,7 @@ def calc_U_from_sig(signal, fs, win_n):
         Z[c] = np.abs(fft.fft(padded_input))
     return np.sum(Z[:,:win_n], axis=0)
 
+
 def salience(U, fs, f_eval, win_n, b=-0.02):
     f_max = fs/2
     df = f_max/win_n 
@@ -107,13 +108,22 @@ if __name__=="__main__":
 
     # calculate saliences
     f_eval = np.array([27.5 * (2**(k/12)) for k in range(88)])
-    b_vals = np.arange(0, -0.05, -0.005)
-    print(b_vals)
-    fig = plt.figure()
-    for k, b in enumerate(b_vals):
-        ax = fig.add_subplot(2,5,k+1)
-        saliences = salience(U, fs, f_eval, num_samples, b=b)
-        ax.plot(f_eval, saliences)
+    # b_vals = np.arange(0, -0.05, -0.005)
+    # print(b_vals)
+    # fig = plt.figure()
+    # for k, b in enumerate(b_vals):
+    #     ax = fig.add_subplot(2,5,k+1)
+    #     saliences = salience(U, fs, f_eval, num_samples, b=b)
+    #     ax.plot(f_eval, saliences)
+    saliences = salience(U, fs, f_eval, num_samples, b=1.8)
+    # for f0 in f0s:
+    #     plt.plot([f0,f0],[0,1], linestyle='--', color='C5', linewidth=0.7)
+    plt.plot(f_eval, saliences)
+    plt.xscale('log')
+    plt.xticks(fontsize=20)
+    plt.yticks(fontsize=20)
+    plt.xlabel('Frequency (Hz)', size=24)
+    plt.ylabel('Salience', size=24)
 
     # plt.plot(f_vals, U)
     # plt.figure()

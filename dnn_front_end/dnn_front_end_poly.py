@@ -120,7 +120,7 @@ class Net(nn.Module):
 ################################################################################
 if __name__=="__main__":
     ## Run parameters
-    TRAIN = True
+    TRAIN = False
     TEST = True
     file_prefix_train = "poly_synth_data_train"
     file_prefix_test = "poly_synth_data_test"
@@ -238,17 +238,29 @@ if __name__=="__main__":
 
     # Now see what an output looks like...
     fig = plt.figure()
-    for k in range(21):
-        rand_idx = np.random.randint(0,len(bach_dataset))
-        target = bach_dataset[rand_idx]['notes']
-        in_image = bach_dataset[rand_idx]['image']
-        output = net(in_image.unsqueeze(0).to('cuda'))
-        sig = nn.Sigmoid()
-        output = sig(output)
-        output = output.to('cpu')
-        ax = fig.add_subplot(3,7,k+1) 
-        ax.plot(target.numpy(), color='C1')
-        ax.plot(output[0].detach().numpy(), color='C0')
-        ax.set_ylim([0,1.1])
+    # for k in range(21):
+    #     rand_idx = np.random.randint(0,len(bach_dataset))
+    #     target = bach_dataset[rand_idx]['notes']
+    #     in_image = bach_dataset[rand_idx]['image']
+    #     output = net(in_image.unsqueeze(0).to('cuda'))
+    #     sig = nn.Sigmoid()
+    #     output = sig(output)
+    #     output = output.to('cpu')
+    #     ax = fig.add_subplot(3,7,k+1) 
+    #     ax.plot(target.numpy(), color='C1')
+    #     ax.plot(output[0].detach().numpy(), color='C0')
+    #     ax.set_ylim([0,1.1])
+    rand_idx = np.random.randint(0,len(bach_dataset))
+    target = bach_dataset[rand_idx]['notes']
+    in_image = bach_dataset[rand_idx]['image']
+    output = net(in_image.unsqueeze(0).to('cuda'))
+    sig = nn.Sigmoid()
+    output = sig(output)
+    output = output.to('cpu')
+    for k in range(target.shape[0]):
+        plt.plot([k,k], [0, 1.1*target.numpy()[k]], color='C1', linestyle='--')
+    # plt.plot(target.numpy(), color='C1')
+    plt.plot(output[0].detach().numpy(), color='C0', linewidth=2.5)
+    plt.ylim([0,1.1])
     plt.show()
     
