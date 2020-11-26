@@ -6,12 +6,12 @@ One can often treat a pitch model as an observation probability which, together 
 transition) model, can be used to make pitch estimates.  An example of doing this for monophonic
 pitch estimation can be found [here](https://github.com/analogouscircuit/particlepitch). This project
 explores the possibility of extending this framework to polyphonic pitch estimation.  The key difficulty
-here is the fact that polyphonic pitch space is so enormous (i.e. modeling it brings one to face the problem
+here is the fact that polyphonic pitch space is so enormous (i.e. modeling transitions presents the problem
 of combinatorial explosion).  The Deep Markov Model, a hybrid deep learning/probabilistic model,
 was recently proposed as one approach to modeling this space. This study, originally presented at the
 2019 meeting of the Acoustical Society of American in Louisville, explores this possibility. Several
 different pitch models (Klapuri's model, as well as a hand-rolled MLP) are used to produce pitch
-estimates.  The [DMM model](https://github.com/pyro-ppl/pyro/blob/dev/examples/dmm.py) was 
+observation probabilities.  The [DMM model](https://github.com/pyro-ppl/pyro/blob/dev/examples/dmm.py) was 
 drawn directly from the [PyTorch example](https://pyro.ai/examples/dmm.html).  
 
 The model output is in the form of a piano roll.
